@@ -1,0 +1,121 @@
+version: "3.5"
+services:
+
+  server-1:
+    image: confluentinc/cp-kafka:latest
+    hostname: server-1
+    container_name: server-1
+    ports:
+      - "39094:39094"
+    environment:
+      KAFKA_LISTENERS: BROKER://server-1:9092,EXTERNAL://server-1:39094,CONTROLLER://server-1:9093
+      KAFKA_ADVERTISED_LISTENERS: BROKER://server-1:9092,EXTERNAL://server-1:39094
+      KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,BROKER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@server-1:9093'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_NUM_NETWORK_THREADS: 3
+      KAFKA_NUM_IO_THREADS: 8
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_REQUEST_MAX_BYTES: 104857600
+      KAFKA_NUM_RECOVERY_THREADS_PER_DATA_DIR: 1
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      CLUSTER_ID: oh-sxaDRTcyAr6pFRbXyzA
+
+  schema-registry:
+     image: confluentinc/cp-schema-registry:latest
+     platform: linux/amd64
+     hostname: schema-registry
+     container_name: schema-registry
+     depends_on:
+       - server-1
+     ports:
+       - "8081:8081"
+     environment:
+       SCHEMA_REGISTRY_HOST_NAME: schema-registry
+       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'server-1:39094'
+       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+  
+  connect-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.kafka-connect
+    hostname: connect-1
+    container_name: connect-1
+    depends_on:
+      - server-1
+      - schema-registry
+    ports:
+      - "8083:8083"
+    volumes:
+      - ./data:/data
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: server-1:39094
+      CONNECT_GROUP_ID: "kc101-connect"
+      CONNECT_CONFIG_STORAGE_TOPIC: "_kc101-connect-configs"
+      CONNECT_OFFSET_STORAGE_TOPIC: "_kc101-connect-offsets"
+      CONNECT_STATUS_STORAGE_TOPIC: "_kc101-connect-status"
+      CONNECT_REPLICATION_FACTOR: 3
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: "io.confluent.connect.avro.AvroConverter"
+      CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: schema-registry:8081
+
+      # Confluent Schema Registry for Kafka Connect
+      CONNECT_VALUE_CONVERTER: "io.confluent.connect.avro.AvroConverter"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "true"
+      CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: schema-registry:8081
+
+      CONNECT_REST_ADVERTISED_HOST_NAME: "connect-1"
+      CONNECT_LISTENERS: http://connect-1:8083
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+      CONNECT_LOG4J_APPENDER_STDOUT_LAYOUT_CONVERSIONPATTERN: "[%d] %p %X{connector.context}%m (%c:%L)%n"
+      CONNECT_LOG4J_ROOT_LOGLEVEL: INFO
+      CONNECT_LOG4J_LOGGERS: 'org.apache.kafka.connect.runtime.rest=WARN,org.reflections=ERROR'
+  
+  mongo:
+    image: mongo
+    restart: always
+    hostname: mongo
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+  
+  ksql-db-server:
+     image: confluentinc/ksqldb-server:latest
+     hostname: ksql-db-server
+     container_name: ksql-db-server
+     ports:
+      - "8088:8088"
+     depends_on:
+      - server-1
+      - schema-registry
+     environment:
+      KSQL_LISTENERS: http://0.0.0.0:8088
+      KSQL_BOOTSTRAP_SERVERS: server-1:39094
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+      KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
+
+
+  ksqldb-cli:
+    image: confluentinc/ksqldb-cli:latest
+    container_name: ksqldb-cli
+    depends_on:
+      - ksql-db-server
+    entrypoint: /bin/sh
+    tty: true

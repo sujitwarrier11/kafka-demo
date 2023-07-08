@@ -1,0 +1,7 @@
+FROM confluentinc/cp-kafka-connect:latest
+
+ENV CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+
+RUN confluent-hub install microsoftcorporation/kafka-connect-cosmos:latest --no-prompt /etc/confluent/docker/run
+
+RUN confluent-hub install mongodb/kafka-connect-mongodb:latest --no-prompt /etc/confluent/docker/run
